@@ -52,6 +52,13 @@ button{cursor:pointer}
 .plist{display:flex;flex-direction:column;gap:1px}
 .dot{width:10px;height:10px;border-radius:3px;flex:none}
 .plist .count{margin-left:auto;font-size:12px;color:var(--pine-muted)}
+.prow{display:flex;align-items:center;gap:2px;padding-left:calc(var(--d,0) * 14px)}
+.prow .pmain{flex:1;min-width:0}
+.plist .chev,.plist .mini{padding:4px 5px;flex:none;color:var(--pine-muted);font-size:12px;line-height:1;justify-content:center;min-width:12px}
+.plist .chev:hover,.plist .mini:hover{color:var(--pine-ink)}
+.chev-sp{width:22px;flex:none}
+.proj-row.sub{padding-left:calc(var(--d) * 16px)}
+.proj-row.sub .lbl{font-size:13.5px}
 .side-foot{margin-top:auto;padding-top:18px;display:flex;flex-direction:column;gap:2px}
 
 /* Main */
@@ -228,6 +235,15 @@ tbody tr:hover{background:var(--surface-2)}
 
 .toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:var(--radius-m);font-weight:600;z-index:60;font-size:14px}
 
+/* Recurrencia */
+.rep-box{border:1px solid var(--line);border-radius:var(--radius-m);padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--surface-2)}
+.dows{display:flex;gap:4px;flex-wrap:wrap}
+.dows button{width:34px;height:32px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-weight:700;font-size:13px}
+.dows button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.rep-end{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px}
+.rep-end input[type=date],.rep-end input[type=number]{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-s);padding:5px 8px}
+.rep-end input[type=number]{width:70px}
+.rep-ico{font-size:11px;opacity:.75;margin-left:2px}
 /* Colaboradores y cartera */
 .badge{display:inline-flex;align-items:center;font-size:12px;font-weight:700;padding:2px 9px;border-radius:20px;background:var(--surface-2);border:1px solid var(--line);white-space:nowrap}
 .badge.agencia{background:#E3ECE8;border-color:#BCD2C8;color:#1F4A3E}
@@ -381,7 +397,7 @@ function seed(){
       {id:uid(), title:'Reunión de seguimiento', kind:'reunion', date:t, start:'10:00', end:'11:00', projectId:p1.id, attendees:[a.id], location:'', notes:'', checklist:[{id:uid(),text:'Estado de las propuestas',done:false}]}
     ],
     settings:{apiKey:'', model:'claude-sonnet-5', theme:''},
-    ui:{view:'today', project:'', calMode:'month', calCursor:t, fAssignee:'', fPrio:'', fStatus:'', showDone:false, kindFilter:'', pType:'', personId:'', pfKind:'', pfOp:'', pfProp:'', pfZone:'', pfMin:'', pfMax:'', pfStatus:'disponible', pfOwnerType:''}
+    ui:{view:'today', project:'', calMode:'month', calCursor:t, fAssignee:'', fPrio:'', fStatus:'', showDone:false, kindFilter:'', pType:'', personId:'', pfKind:'', pfOp:'', pfProp:'', pfZone:'', pfMin:'', pfMax:'', pfStatus:'disponible', pfOwnerType:'', collapsed:{}}
   };
 }
 function load(){ try{ const r = localStorage.getItem(KEY); return r ? JSON.parse(r) : null; }catch(e){ return null; } }
@@ -389,6 +405,7 @@ let S = load() || seed();
 function normalize(){
   S.ui = Object.assign(seed().ui, S.ui || {}); S.settings = Object.assign({apiKey:'',model:'claude-sonnet-5',theme:''}, S.settings||{});
   ['projects','people','tasks','events'].forEach(k=>{ if(!Array.isArray(S[k])) S[k]=[]; });
+  S.projects.forEach(p=>{ if(!p.parentId || !S.projects.some(q=>q.id===p.parentId) || p.parentId===p.id) p.parentId=''; });
   S.people.forEach(p=>{ Object.entries({type:'otro',company:'',role:'',email:'',phone:'',zone:'',commission:'',notes:'',portfolioUpdated:'',color:COLORS[2]}).forEach(([k,v])=>{ if(p[k]==null) p[k]=v; }); if(!Array.isArray(p.portfolio)) p.portfolio=[]; if(!Array.isArray(p.log)) p.log=[]; });
 }
 normalize();
@@ -399,11 +416,69 @@ function toast(msg){ const el=document.createElement('div'); el.className='toast
 const proj = id => S.projects.find(p=>p.id===id);
 const person = id => S.people.find(p=>p.id===id);
 const pColor = id => proj(id)?.color || '#7A858C';
-const inProj = x => !S.ui.project || x.projectId===S.ui.project;
+/* ---- Subproyectos ---- */
+const kids = id => S.projects.filter(p=>(p.parentId||'')===id);
+function descIds(id){ const out = new Set([id]); let added = true; while(added){ added = false; S.projects.forEach(p=>{ if(p.parentId && out.has(p.parentId) && !out.has(p.id)){ out.add(p.id); added = true; } }); } return out; }
+const projPath = id => { const parts = []; let p = proj(id), g = 0; while(p && g++ < 12){ parts.unshift(p.name); p = proj(p.parentId); } return parts.join(' › '); };
+function projTree(rootId=''){ const out = []; const walk = (pid, depth) => kids(pid).forEach(p=>{ out.push({p, depth}); walk(p.id, depth+1); });
+  if(rootId){ const r = proj(rootId); if(r){ out.push({p:r, depth:0}); walk(rootId, 1); } return out; }
+  walk('', 0); S.projects.forEach(p=>{ if(!out.some(o=>o.p.id===p.id)) out.push({p, depth:0}); }); return out; }
+function findProj(name){ const n = (name||'').toLowerCase().replace(/\s*[›>\/]\s*/g,' › ').trim(); if(!n) return null;
+  return S.projects.find(p=>projPath(p.id).toLowerCase()===n) || S.projects.find(p=>p.name.toLowerCase()===n.split(' › ').pop()) || findBy(S.projects, n.split(' › ').pop()); }
+let _pset = {k:null, s:null};
+const inProj = x => { if(!S.ui.project) return true; const k = S.ui.project + '|' + S.projects.map(p=>p.id+(p.parentId||'')).join(); if(_pset.k!==k) _pset = {k, s:descIds(S.ui.project)}; return _pset.s.has(x.projectId); };
 const q = () => ($('#q').value||'').trim().toLowerCase();
 const matchQ = x => !q() || (x.title+' '+(x.desc||x.notes||'')).toLowerCase().includes(q());
 const visTasks = () => S.tasks.filter(t=>inProj(t)&&matchQ(t));
 const visEvents = () => S.events.filter(e=>inProj(e)&&matchQ(e));
+/* ---- Citas recurrentes ---- */
+const FREQS = [['none','No se repite'],['daily','Cada día'],['weekdays','De lunes a viernes'],['weekly','Cada semana'],['monthly','Cada mes'],['yearly','Cada año']];
+const DOW_S = ['L','M','X','J','V','S','D'];
+const DOW_L = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'];
+const dowOf = s => (parseYmd(s).getDay()+6)%7;
+const isRec = e => e.repeat && e.repeat.freq && e.repeat.freq!=='none';
+function matchesRule(e, ds){
+  const r = e.repeat, n = Math.max(1, +r.interval||1), a = parseYmd(e.date), d = parseYmd(ds);
+  const diff = Math.round((d - a)/864e5);
+  switch(r.freq){
+    case 'daily': return diff % n === 0;
+    case 'weekdays': return dowOf(ds) < 5;
+    case 'weekly': { const days = r.days?.length ? r.days : [dowOf(e.date)]; if(!days.includes(dowOf(ds))) return false;
+      const wk = Math.floor((diff + dowOf(e.date))/7); return wk % n === 0; }
+    case 'monthly': { const m = (d.getFullYear()-a.getFullYear())*12 + d.getMonth()-a.getMonth(); return d.getDate()===a.getDate() && m % n === 0; }
+    case 'yearly': return d.getDate()===a.getDate() && d.getMonth()===a.getMonth() && (d.getFullYear()-a.getFullYear()) % n === 0;
+  }
+  return false;
+}
+// Fechas en las que ocurre una cita entre from y to (incluidos)
+function occurrences(e, from, to){
+  if(!isRec(e)) return (e.date>=from && e.date<=to) ? [e.date] : [];
+  const r = e.repeat, out = [], ex = new Set(e.exdates||[]);
+  const hardEnd = r.until && r.until < to ? r.until : to;
+  const maxCount = +r.count > 0 ? +r.count : Infinity;
+  let ds = e.date, count = 0, guard = 0;
+  while(ds <= hardEnd && count < maxCount && guard++ < 4000){
+    if(matchesRule(e, ds)){ count++; if(ds >= from && !ex.has(ds)) out.push(ds); }
+    ds = addDays(ds, 1);
+  }
+  return out;
+}
+// Todas las ocurrencias visibles entre dos fechas, ordenadas
+function eventsBetween(from, to, list){
+  const t = today(), lo = addDays(t,-365), hi = addDays(t,400);
+  return (list || visEvents()).flatMap(e=>{
+    const f = isRec(e) && from < lo ? lo : from, tt = isRec(e) && to > hi ? hi : to;
+    return occurrences(e, f, tt).map(d=>({...e, date:d, occ:d, series:e.date}));
+  }).sort(byTime);
+}
+function repeatText(e){
+  if(!isRec(e)) return '';
+  const r = e.repeat, n = +r.interval||1;
+  let s = {daily: n>1?`Cada ${n} días`:'Cada día', weekdays:'De lunes a viernes', monthly: `${n>1?`Cada ${n} meses`:'Cada mes'}, el día ${parseYmd(e.date).getDate()}`, yearly: n>1?`Cada ${n} años`:'Cada año'}[r.freq];
+  if(r.freq==='weekly'){ const days = (r.days?.length?r.days:[dowOf(e.date)]).slice().sort().map(i=>DOW_L[i]); s = `${n>1?`Cada ${n} semanas`:'Cada semana'}: ${days.join(', ')}`; }
+  if(r.until) s += `, hasta el ${fmtDay(r.until)}`; else if(+r.count>0) s += `, ${r.count} veces`;
+  return s;
+}
 const avatars = ids => `<span class="avs">${(ids||[]).map(person).filter(Boolean).map(p=>`<span class="av" style="background:${p.color}" title="${esc(p.name)}">${esc(initials(p.name))}</span>`).join('')}</span>`;
 const clProgress = cl => cl?.length ? `${cl.filter(c=>c.done).length}/${cl.length}` : '';
 const isLate = t => t.due && t.status!=='done' && t.due < today();
@@ -424,13 +499,17 @@ function renderNav(){
   $('#nav').innerHTML = VIEWS.map(([k,n])=>`<button data-act="view" data-v="${k}" aria-current="${S.ui.view===k || (k==='people'&&S.ui.view==='person')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>${n}</button>`).join('');
   const open = t => t.status!=='done';
   $('#plist').innerHTML = `<button data-act="proj" data-id="" aria-current="${!S.ui.project}"><span class="dot" style="background:var(--pine-muted)"></span>Todos<span class="count">${S.tasks.filter(open).length}</span></button>` +
-    S.projects.map(p=>`<button data-act="proj" data-id="${p.id}" aria-current="${S.ui.project===p.id}"><span class="dot" style="background:${p.color}"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}</span><span class="count">${S.tasks.filter(t=>t.projectId===p.id&&open(t)).length}</span></button>`).join('');
+    (()=>{ const col = S.ui.collapsed||{}; const hidden = new Set(); projTree().forEach(({p})=>{ if(hidden.has(p.parentId) || (p.parentId && col[p.parentId])) hidden.add(p.id); });
+      return projTree().filter(o=>!hidden.has(o.p.id)).map(({p,depth})=>{ const has = kids(p.id).length, sel = S.ui.project===p.id, ids = descIds(p.id);
+        return `<div class="prow" style="--d:${depth}">${has?`<button class="chev" data-act="toggleProj" data-id="${p.id}" aria-label="${col[p.id]?'Desplegar':'Plegar'} subproyectos">${col[p.id]?'▸':'▾'}</button>`:'<span class="chev-sp"></span>'}
+          <button class="pmain" data-act="proj" data-id="${p.id}" aria-current="${sel}"><span class="dot" style="background:${p.color}"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}</span><span class="count">${S.tasks.filter(t=>ids.has(t.projectId)&&open(t)).length}</span></button>
+          ${sel?`<button class="mini" data-act="newSubProject" data-id="${p.id}" title="Nuevo subproyecto" aria-label="Nuevo subproyecto">＋</button><button class="mini" data-act="editProject" data-id="${p.id}" title="Editar proyecto" aria-label="Editar proyecto">✎</button>`:''}</div>`; }).join(''); })();
 }
 function render(){
   renderNav(); renderStorage();
   if(S.ui.view==='person' && !person(S.ui.personId)) S.ui.view='people';
   const v = S.ui.view, p = proj(S.ui.project);
-  $('#title').textContent = v==='person' ? 'Colaborador' : (VIEWS.find(x=>x[0]===v)||[,''])[1] + (p && !['people','portfolio'].includes(v) ? ` · ${p.name}` : '');
+  $('#title').textContent = v==='person' ? 'Colaborador' : (VIEWS.find(x=>x[0]===v)||[,''])[1] + (p && !['people','portfolio'].includes(v) ? ` · ${projPath(p.id)}` : '');
   const fn = {today:vToday, calendar:vCalendar, board:vBoard, list:vList, meetings:vMeetings, people:vPeople, person:vPerson, portfolio:vPortfolio}[v] || vToday;
   $('#view').innerHTML = fn();
   if(v==='board') bindBoard();
@@ -448,10 +527,10 @@ function taskRow(t, showDate=true){
   </div>`;
 }
 function eventRow(e, withDate=false){
-  return `<div class="row" data-act="openEvent" data-id="${e.id}">
+  return `<div class="row" data-act="openEvent" data-id="${e.id}" data-occ="${e.occ||''}">
     <span class="time">${esc(e.start||'—')}</span>
     <span class="dot" style="background:${pColor(e.projectId)}"></span>
-    <span class="t">${esc(e.title)}</span>
+    <span class="t">${esc(e.title)}${isRec(e)?'<span class="rep-ico" title="Se repite"> ↻</span>':''}</span>
     <span class="meta">${withDate?fmtDay(e.date)+' · ':''}${label(KINDS,e.kind)}</span>
   </div>`;
 }
@@ -459,16 +538,16 @@ const byTime = (a,b) => (a.date+a.start).localeCompare(b.date+b.start);
 
 function vToday(){
   const t = today(), d = new Date();
-  const evs = visEvents().filter(e=>e.date===t).sort(byTime);
+  const evs = eventsBetween(t,t);
   const tasks = visTasks().filter(x=>x.status!=='done');
   const late = tasks.filter(isLate).sort((a,b)=>a.due.localeCompare(b.due));
   const dueToday = tasks.filter(x=>x.due===t);
   const wk = addDays(t,7);
   const upcomingT = tasks.filter(x=>x.due>t && x.due<=wk).sort((a,b)=>a.due.localeCompare(b.due));
-  const upcomingE = visEvents().filter(e=>e.date>t && e.date<=wk).sort(byTime);
-  const projs = (S.ui.project?S.projects.filter(p=>p.id===S.ui.project):S.projects).map(p=>{
-    const all = S.tasks.filter(x=>x.projectId===p.id), done = all.filter(x=>x.status==='done').length;
-    return {p, all:all.length, done, pct: all.length?Math.round(done/all.length*100):0};
+  const upcomingE = eventsBetween(addDays(t,1), wk);
+  const projs = projTree(S.ui.project).map(({p,depth})=>{
+    const ids = descIds(p.id), all = S.tasks.filter(x=>ids.has(x.projectId)), done = all.filter(x=>x.status==='done').length;
+    return {p, depth, all:all.length, done, pct: all.length?Math.round(done/all.length*100):0};
   });
   return `
   <div class="today-head">
@@ -489,17 +568,17 @@ function vToday(){
     </section>
     ${(()=>{ const st = S.people.filter(isStale); return st.length ? `<section class="panel"><h2>Carteras por actualizar <span>más de ${STALE_DAYS} días</span></h2>${st.map(p=>`<div class="row" data-act="openPerson" data-id="${p.id}"><span class="av" style="background:${p.color};margin:0;border:0">${esc(initials(p.name))}</span><span class="t">${esc(p.name)}</span><span class="meta late">${p.portfolioUpdated?`hace ${daysSince(p.portfolioUpdated)} días`:'sin cartera'}</span></div>`).join('')}</section>` : ''; })()}
     <section class="panel"><h2>Progreso por proyecto</h2>
-      ${projs.length?projs.map(o=>`<div class="proj-row" data-act="proj" data-id="${o.p.id}" style="cursor:pointer"><div class="lbl"><span class="tag"><span class="dot" style="background:${o.p.color}"></span>${esc(o.p.name)}</span><span class="meta">${o.done}/${o.all}</span></div><div class="bar"><i style="width:${o.pct}%;background:${o.p.color}"></i></div></div>`).join(''):'<div class="empty">Crea tu primer proyecto desde el menú lateral.</div>'}
+      ${projs.length?projs.map(o=>`<div class="proj-row ${o.depth?'sub':''}" data-act="proj" data-id="${o.p.id}" style="cursor:pointer;--d:${o.depth}"><div class="lbl"><span class="tag"><span class="dot" style="background:${o.p.color}"></span>${esc(o.p.name)}</span><span class="meta">${o.done}/${o.all}</span></div><div class="bar"><i style="width:${o.pct}%;background:${o.p.color}"></i></div></div>`).join(''):'<div class="empty">Crea tu primer proyecto desde el menú lateral.</div>'}
     </section>
   </div>`;
 }
 
 function dayItems(ds){
-  const evs = visEvents().filter(e=>e.date===ds).sort(byTime);
+  const evs = eventsBetween(ds, ds);
   const tks = visTasks().filter(t=>t.due===ds);
   return {evs,tks};
 }
-const evChip = e => `<div class="chip ev" style="--c:${pColor(e.projectId)};--c-soft:${soft(pColor(e.projectId))}" data-act="openEvent" data-id="${e.id}" title="${esc(e.start+' '+e.title)}"><b>${esc(e.start)}</b><span>${esc(e.title)}</span></div>`;
+const evChip = e => `<div class="chip ev" style="--c:${pColor(e.projectId)};--c-soft:${soft(pColor(e.projectId))}" data-act="openEvent" data-id="${e.id}" data-occ="${e.occ||''}" title="${esc(e.start+' '+e.title+(isRec(e)?' · '+repeatText(e):''))}"><b>${esc(e.start)}</b><span>${esc(e.title)}${isRec(e)?' ↻':''}</span></div>`;
 const tkChip = t => `<div class="chip tk ${t.status==='done'?'is-done':''}" style="--c:${pColor(t.projectId)}" data-act="openTask" data-id="${t.id}" title="${esc(t.title)}"><span>${esc(t.title)}</span></div>`;
 
 function vCalendar(){
@@ -569,7 +648,7 @@ function vList(){
   ${list.map(t=>`<tr data-act="openTask" data-id="${t.id}" class="${t.status==='done'?'done':''}">
     <td><input type="checkbox" class="check" data-act="toggleTask" data-id="${t.id}" ${t.status==='done'?'checked':''} aria-label="Completar"></td>
     <td class="t" style="font-weight:600">${esc(t.title)}</td>
-    <td><span class="tag"><span class="dot" style="background:${pColor(t.projectId)}"></span>${esc(proj(t.projectId)?.name||'Sin proyecto')}</span></td>
+    <td><span class="tag"><span class="dot" style="background:${pColor(t.projectId)}"></span>${esc(projPath(t.projectId)||'Sin proyecto')}</span></td>
     <td>${label(STATUS,t.status)}</td>
     <td><span class="prio ${t.priority}">${label(PRIOS,t.priority)}</span></td>
     <td class="${isLate(t)?'late':''}">${t.due?fmtDay(t.due):'—'}</td>
@@ -580,12 +659,13 @@ function vList(){
 
 function vMeetings(){
   const t = today(), kf = S.ui.kindFilter;
-  const evs = visEvents().filter(e=>!kf||e.kind===kf).sort(byTime);
-  const up = evs.filter(e=>e.date>=t), past = evs.filter(e=>e.date<t).reverse().slice(0,30);
+  const list = visEvents().filter(e=>!kf||e.kind===kf);
+  const up = eventsBetween(t, addDays(t,365), list).filter(e=>!isRec(e) || e.date<=addDays(t,60));
+  const past = eventsBetween(addDays(t,-365), addDays(t,-1), list).reverse().slice(0,30);
   const group = list => { const g = {}; list.forEach(e=>(g[e.date]=g[e.date]||[]).push(e)); return Object.entries(g).map(([d,items])=>`<div class="day-group"><h3>${fmtLong(d)}${d===t?' · hoy':''}</h3>${items.map(e=>`
-    <div class="meet" style="--c:${pColor(e.projectId)}" data-act="openEvent" data-id="${e.id}">
+    <div class="meet" style="--c:${pColor(e.projectId)}" data-act="openEvent" data-id="${e.id}" data-occ="${e.occ||''}">
       <div class="mt">${esc(e.start)}${e.end?'–'+esc(e.end):''}</div>
-      <div><div class="mn">${esc(e.title)}</div><div class="ms">${esc(proj(e.projectId)?.name||'Sin proyecto')}${e.location?' · '+esc(e.location):''}${e.checklist?.length?' · ☑ '+clProgress(e.checklist):''}</div></div>
+      <div><div class="mn">${esc(e.title)}</div><div class="ms">${isRec(e)?'↻ '+esc(repeatText(e))+' · ':''}${esc(projPath(e.projectId)||'Sin proyecto')}${e.location?' · '+esc(e.location):''}${e.checklist?.length?' · ☑ '+clProgress(e.checklist):''}</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="kind">${label(KINDS,e.kind)}</span>${avatars(e.attendees)}</div>
     </div>`).join('')}</div>`).join(''); };
   return `<div class="filters"><div class="seg">${[['','Todas'],...KINDS].map(([k,n])=>`<button data-act="kindFilter" data-k="${k}" aria-pressed="${kf===k}">${n}</button>`).join('')}</div></div>
@@ -618,7 +698,8 @@ function vPerson(){
   const p = person(S.ui.personId); const t = today();
   const tasks = S.tasks.filter(x=>x.assignees.includes(p.id)).sort((a,b)=>(a.status==='done')-(b.status==='done') || (a.due||'9').localeCompare(b.due||'9'));
   const meets = S.events.filter(e=>e.attendees.includes(p.id));
-  const timeline = [...p.log.map(l=>({date:l.date, html:`<b>${label(CHANNELS,l.channel)}</b> ${esc(l.text)}`, id:l.id})), ...meets.map(e=>({date:e.date, html:`<b>${label(KINDS,e.kind)}</b> <span data-act="openEvent" data-id="${e.id}" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px">${esc(e.title)}</span>${e.date>=t?' (programada)':''}`}))].sort((a,b)=>b.date.localeCompare(a.date));
+  const timeline = [...p.log.map(l=>({date:l.date, html:`<b>${label(CHANNELS,l.channel)}</b> ${esc(l.text)}`, id:l.id})), ...meets.map(e=>{ const next = isRec(e) ? eventsBetween(t, addDays(t,400), [e])[0]?.date : null; const d = next || e.date;
+      return {date:d, html:`<b>${label(KINDS,e.kind)}</b> <span data-act="openEvent" data-id="${e.id}" data-occ="${next||''}" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px">${esc(e.title)}</span>${isRec(e)?` · ↻ ${esc(repeatText(e))}`:''}${d>=t?' (programada)':''}`}; })].sort((a,b)=>b.date.localeCompare(a.date));
   const phone = (p.phone||'').replace(/[^\d+]/g,''); const wa = phone.replace(/^\+/,'');
   const items = [...p.portfolio].sort((a,b)=>ISTATUS.findIndex(s=>s[0]===a.status)-ISTATUS.findIndex(s=>s[0]===b.status));
   return `<button class="back" data-act="view" data-v="people">‹ Colaboradores</button>
@@ -678,7 +759,7 @@ function openModal(html){
 }
 function closeModal(){ $('#modalRoot').innerHTML=''; }
 const opts = (arr,val) => arr.map(([k,n])=>`<option value="${k}" ${val===k?'selected':''}>${esc(n)}</option>`).join('');
-const projOpts = val => `<option value="">Sin proyecto</option>` + S.projects.map(p=>`<option value="${p.id}" ${val===p.id?'selected':''}>${esc(p.name)}</option>`).join('');
+const projOpts = (val, exclude) => `<option value="">Sin proyecto</option>` + projTree().filter(o=>!exclude||!exclude.has(o.p.id)).map(({p,depth})=>`<option value="${p.id}" ${val===p.id?'selected':''}>${'\u00a0\u00a0\u00a0'.repeat(depth)}${depth?'↳ ':''}${esc(p.name)}</option>`).join('');
 const peoplePick = sel => S.people.length ? S.people.map(p=>`<button type="button" data-m="pickPerson" data-id="${p.id}" aria-pressed="${sel.includes(p.id)}"><span class="av" style="background:${p.color}">${esc(initials(p.name))}</span>${esc(p.name)}</button>`).join('') : '<span class="empty">Añade colaboradores en la sección Colaboradores.</span>';
 const checklistHtml = cl => cl.map(c=>`<div class="cl-item ${c.done?'done':''}"><input type="checkbox" class="check" data-m="clToggle" data-id="${c.id}" ${c.done?'checked':''}><input type="text" data-cl="${c.id}" value="${esc(c.text)}"><button type="button" class="x" data-m="clDel" data-id="${c.id}" aria-label="Quitar">×</button></div>`).join('');
 
@@ -729,20 +810,36 @@ function taskModal(id, preset={}){
     del(){ if(!confirm('¿Eliminar esta tarea?')) return; S.tasks = S.tasks.filter(t=>t.id!==draft.id); save(); closeModal(); render(); toast('Tarea eliminada'); },
     async ai(){ read(); if(!draft.title) throw new Error('Escribe primero el nombre de la tarea.');
       return aiJSON('Eres un asistente de productividad. Devuelve SOLO un array JSON de strings (5-8 pasos concretos y accionables, en español, máximo 10 palabras cada uno). Sin texto adicional.',
-        `Tarea: ${draft.title}\nProyecto: ${proj(draft.projectId)?.name||'—'}\nDescripción: ${draft.desc||'—'}\nPasos ya existentes: ${draft.checklist.map(c=>c.text).join('; ')||'ninguno'}`); }
+        `Tarea: ${draft.title}\nProyecto: ${projPath(draft.projectId)||'—'}\nDescripción: ${draft.desc||'—'}\nPasos ya existentes: ${draft.checklist.map(c=>c.text).join('; ')||'ninguno'}`); }
   });
 }
 
-function eventModal(id, preset={}){
+function eventModal(id, preset={}, occ=''){
   const orig = id ? S.events.find(e=>e.id===id) : null;
   const draft = JSON.parse(JSON.stringify(orig || {id:uid(), title:'', kind:'reunion', date:today(), start:'10:00', end:'11:00', projectId:S.ui.project||'', attendees:[], location:'', notes:'', checklist:[], ...preset}));
+  draft.repeat = Object.assign({freq:'none', interval:1, days:[], until:'', count:''}, draft.repeat||{}); draft.exdates = draft.exdates||[];
+  const recOrig = orig && isRec(orig); if(recOrig && !occ) occ = orig.date;
+  const shownDate = recOrig ? occ : draft.date;
+  const endMode = draft.repeat.until ? 'until' : (+draft.repeat.count>0 ? 'count' : 'never');
   const m = openModal(`<header><h2>${orig?'Editar cita':'Nueva cita'}</h2><button class="icon-btn" data-m="cancel" aria-label="Cerrar">✕</button></header>
   <div class="body">
     <input class="title-input" id="eTitle" placeholder="Título de la reunión o cita" value="${esc(draft.title)}">
+    ${recOrig?`<div class="note">↻ Cita recurrente (${esc(repeatText(orig))}). Estás viendo la del <b>${fmtLong(occ)}</b>. Al guardar podrás elegir si el cambio afecta solo a esta o a toda la serie.</div>`:''}
     <div class="grid3">
-      <div class="field"><label for="eDate">Fecha</label><input type="date" id="eDate" value="${draft.date}"></div>
+      <div class="field"><label for="eDate">Fecha</label><input type="date" id="eDate" value="${shownDate}"></div>
       <div class="field"><label for="eStart">Inicio</label><input type="time" id="eStart" value="${draft.start}"></div>
       <div class="field"><label for="eEnd">Fin</label><input type="time" id="eEnd" value="${draft.end}"></div>
+    </div>
+    <div class="field"><label for="eFreq">Repetir</label><select id="eFreq">${opts(FREQS,draft.repeat.freq)}</select></div>
+    <div class="rep-box" id="repBox">
+      <div class="rep-end" id="repEvery"><span>Cada</span><input type="number" id="eInterval" min="1" max="99" value="${draft.repeat.interval||1}"><span id="repUnit"></span></div>
+      <div class="field" id="repDaysF"><div class="lab">Qué días</div><div class="dows">${DOW_S.map((x,i)=>`<button type="button" data-m="dow" data-i="${i}" aria-pressed="${draft.repeat.days.includes(i)}" aria-label="${DOW_L[i]}">${x}</button>`).join('')}</div></div>
+      <div class="rep-end"><span>Termina</span>
+        <label class="tag"><input type="radio" name="rEnd" value="never" ${endMode==='never'?'checked':''}> Nunca</label>
+        <label class="tag"><input type="radio" name="rEnd" value="until" ${endMode==='until'?'checked':''}> El día <input type="date" id="eUntil" value="${draft.repeat.until}"></label>
+        <label class="tag"><input type="radio" name="rEnd" value="count" ${endMode==='count'?'checked':''}> Tras <input type="number" id="eCount" min="1" value="${draft.repeat.count||10}"> veces</label>
+      </div>
+      <div class="meta" id="repSummary"></div>
     </div>
     <div class="grid2">
       <div class="field"><label for="eKind">Tipo</label><select id="eKind">${opts(KINDS,draft.kind)}</select></div>
@@ -753,35 +850,78 @@ function eventModal(id, preset={}){
     ${clBlock(draft,'Proponer orden del día')}
     <div class="field"><label for="eNotes">Notas y acuerdos</label><textarea id="eNotes" placeholder="Lo que se decidió en la reunión…">${esc(draft.notes)}</textarea></div>
   </div>
-  <footer>${orig?'<button class="btn danger left" data-m="delete">Eliminar</button><button class="btn" data-m="extra" title="Convierte los puntos pendientes del checklist en tareas">Crear tareas</button>':''}<button class="btn" data-m="cancel">Cancelar</button><button class="btn primary" data-m="save">${orig?'Guardar cambios':'Crear cita'}</button></footer>`);
-  const read = () => Object.assign(draft,{title:m.querySelector('#eTitle').value.trim(), date:m.querySelector('#eDate').value, start:m.querySelector('#eStart').value, end:m.querySelector('#eEnd').value, kind:m.querySelector('#eKind').value, projectId:m.querySelector('#eProj').value, location:m.querySelector('#eLoc').value, notes:m.querySelector('#eNotes').value});
+  <footer id="eFoot">${orig?'<button class="btn danger left" data-m="delete">Eliminar</button><button class="btn" data-m="extra" title="Convierte los puntos pendientes del checklist en tareas">Crear tareas</button>':''}<button class="btn" data-m="cancel">Cancelar</button><button class="btn primary" data-m="save">${orig?'Guardar cambios':'Crear cita'}</button></footer>`);
+  const $m = s => m.querySelector(s);
+  const readRepeat = () => { const r = draft.repeat; r.freq = $m('#eFreq').value; r.interval = Math.max(1, +$m('#eInterval').value||1);
+    const mode = m.querySelector('input[name=rEnd]:checked')?.value||'never'; r.until = mode==='until' ? $m('#eUntil').value : ''; r.count = mode==='count' ? Math.max(1, +$m('#eCount').value||1) : '';
+    if(r.freq==='weekly' && !r.days.length) r.days = [dowOf($m('#eDate').value||today())]; if(r.freq!=='weekly') r.days = []; };
+  const syncRep = () => { const f = $m('#eFreq').value; $m('#repBox').hidden = f==='none'; $m('#repEvery').hidden = f==='weekdays';
+    $m('#repDaysF').hidden = f!=='weekly'; $m('#repUnit').textContent = {daily:'día(s)',weekly:'semana(s)',monthly:'mes(es)',yearly:'año(s)'}[f]||'';
+    if(f==='weekly' && !draft.repeat.days.length){ draft.repeat.days = [dowOf($m('#eDate').value||today())]; m.querySelectorAll('[data-m=dow]').forEach(b=>b.setAttribute('aria-pressed', draft.repeat.days.includes(+b.dataset.i))); }
+    const tmp = {...draft, date:(recOrig?orig.date:$m('#eDate').value)||today(), repeat:{...draft.repeat}}; const keep = draft.repeat.days; draft.repeat.days = keep; tmp.repeat.freq = f; tmp.repeat.interval = +$m('#eInterval').value||1;
+    const mode = m.querySelector('input[name=rEnd]:checked')?.value; tmp.repeat.until = mode==='until'?$m('#eUntil').value:''; tmp.repeat.count = mode==='count'?$m('#eCount').value:'';
+    $m('#repSummary').textContent = f==='none' ? '' : '↻ ' + repeatText(tmp); };
+  m.addEventListener('change', syncRep); m.addEventListener('input', e=>{ if(['eInterval','eCount','eUntil'].includes(e.target.id)) syncRep(); });
+  m.addEventListener('click', e=>{ const b = e.target.closest('[data-m=dow]'); if(!b) return; const i = +b.dataset.i, arr = draft.repeat.days, k = arr.indexOf(i);
+    if(k<0) arr.push(i); else if(arr.length>1) arr.splice(k,1); b.setAttribute('aria-pressed', arr.includes(i)); syncRep(); });
+  syncRep();
+  const read = () => { Object.assign(draft,{title:$m('#eTitle').value.trim(), date:$m('#eDate').value, start:$m('#eStart').value, end:$m('#eEnd').value, kind:$m('#eKind').value, projectId:$m('#eProj').value, location:$m('#eLoc').value, notes:$m('#eNotes').value}); readRepeat(); };
+  const done = msg => { save(); closeModal(); render(); toast(msg); };
+  // Botones para elegir alcance en citas recurrentes
+  const askScope = (verb, onOne, onAll) => { $m('#eFoot').innerHTML = `<span class="meta left" style="margin-right:auto">¿${verb} solo esta cita o toda la serie?</span><button class="btn" data-m="back">Volver</button><button class="btn" data-m="scopeOne">Solo esta</button><button class="btn primary" data-m="scopeAll">Toda la serie</button>`;
+    m.onclick = ev => { const a = ev.target.closest('[data-m]')?.dataset.m; if(a==='scopeOne'){ m.onclick=null; onOne(); } if(a==='scopeAll'){ m.onclick=null; onAll(); } if(a==='back'){ m.onclick=null; closeModal(); eventModal(id, {}, occ); } }; };
   wireModal(m, draft, {peopleKey:'attendees',
-    save(){ read(); if(!draft.title||!draft.date){ toast('Añade un título y una fecha.'); return; } if(orig) Object.assign(orig,draft); else S.events.push(draft); save(); closeModal(); render(); toast(orig?'Cambios guardados':'Cita creada'); },
-    del(){ if(!confirm('¿Eliminar esta cita?')) return; S.events = S.events.filter(e=>e.id!==draft.id); save(); closeModal(); render(); toast('Cita eliminada'); },
+    save(){ read(); if(!draft.title||!draft.date){ toast('Añade un título y una fecha.'); return; }
+      if(draft.repeat.until && draft.repeat.until < draft.date){ toast('La fecha de fin de la repetición es anterior al inicio.'); return; }
+      if(!orig){ S.events.push(draft); return done(isRec(draft)?'Cita recurrente creada':'Cita creada'); }
+      if(!recOrig){ Object.assign(orig,draft); return done('Cambios guardados'); }
+      askScope('Guardar cambios en',
+        () => { orig.exdates = [...new Set([...(orig.exdates||[]), occ])]; S.events.push({...JSON.parse(JSON.stringify(draft)), id:uid(), repeat:{freq:'none',interval:1,days:[],until:'',count:''}, exdates:[]}); done('Cambios guardados en esta cita'); },
+        () => { const shift = Math.round((parseYmd(draft.date) - parseYmd(occ))/864e5); const newStart = addDays(orig.date, shift);
+          Object.assign(orig, draft, {date:newStart, id:orig.id, exdates: shift ? [] : (orig.exdates||[])});
+          if(draft.repeat.freq==='weekly' && shift && draft.repeat.days.length===1 && draft.repeat.days[0]===dowOf(addDays(newStart,-shift))) orig.repeat.days=[dowOf(newStart)];
+          done('Cambios guardados en toda la serie'); }); },
+    del(){ if(!recOrig){ if(!confirm('¿Eliminar esta cita?')) return; S.events = S.events.filter(e=>e.id!==draft.id); return done('Cita eliminada'); }
+      askScope('Eliminar',
+        () => { orig.exdates = [...new Set([...(orig.exdates||[]), occ])]; done('Cita eliminada'); },
+        () => { S.events = S.events.filter(e=>e.id!==orig.id); done('Serie eliminada'); }); },
     extra(){ read(); const pend = draft.checklist.filter(c=>!c.done); if(!pend.length){ toast('No hay puntos pendientes en el checklist.'); return; }
       pend.forEach(c=>S.tasks.push({id:uid(), title:c.text, desc:`Desde: ${draft.title} (${fmtDay(draft.date)})`, projectId:draft.projectId, status:'todo', priority:'media', due:'', assignees:[...draft.attendees], checklist:[], createdAt:Date.now()}));
-      if(orig) Object.assign(orig,draft); save(); closeModal(); render(); toast(`${pend.length} ${pend.length===1?'tarea creada':'tareas creadas'}`); },
+      if(orig && !recOrig) Object.assign(orig,draft); if(recOrig) pend.forEach(p=>{ const c = orig.checklist.find(x=>x.id===p.id); if(c) c.done = true; });
+      done(`${pend.length} ${pend.length===1?'tarea creada':'tareas creadas'}`); },
     async ai(){ read(); if(!draft.title) throw new Error('Escribe primero el título de la cita.');
       return aiJSON('Eres un asistente que prepara reuniones profesionales. Devuelve SOLO un array JSON de strings con 4-7 puntos del orden del día, en español, concisos. Sin texto adicional.',
-        `Reunión: ${draft.title}\nTipo: ${label(KINDS,draft.kind)}\nProyecto: ${proj(draft.projectId)?.name||'—'}\nAsistentes: ${draft.attendees.map(i=>person(i)?.name).filter(Boolean).join(', ')||'—'}\nNotas: ${draft.notes||'—'}\nTareas abiertas del proyecto: ${S.tasks.filter(t=>t.projectId===draft.projectId&&t.status!=='done').map(t=>t.title).join('; ')||'ninguna'}`); }
+        `Reunión: ${draft.title}\nTipo: ${label(KINDS,draft.kind)}\nProyecto: ${projPath(draft.projectId)||'—'}\nAsistentes: ${draft.attendees.map(i=>person(i)?.name).filter(Boolean).join(', ')||'—'}\nNotas: ${draft.notes||'—'}\nTareas abiertas del proyecto: ${S.tasks.filter(t=>t.projectId===draft.projectId&&t.status!=='done').map(t=>t.title).join('; ')||'ninguna'}`); }
   });
 }
 
-function projectModal(id){
-  const orig = id ? proj(id) : null;
-  const draft = {...(orig || {id:uid(), name:'', color:COLORS[S.projects.length%COLORS.length], desc:''})};
-  const m = openModal(`<header><h2>${orig?'Editar proyecto':'Nuevo proyecto'}</h2><button class="icon-btn" data-m="cancel" aria-label="Cerrar">✕</button></header>
-  <div class="body"><input class="title-input" id="pName" placeholder="Nombre del proyecto" value="${esc(draft.name)}">
+function projectModal(id, parentId=''){
+  const orig = id ? proj(id) : null; const par = proj(parentId);
+  const draft = {...(orig || {id:uid(), name:'', color: par?.color || COLORS[S.projects.length%COLORS.length], desc:'', parentId: par?.id||''})};
+  draft.parentId = draft.parentId || '';
+  const excl = orig ? descIds(orig.id) : new Set();
+  const nKids = orig ? descIds(orig.id).size - 1 : 0;
+  const m = openModal(`<header><h2>${orig?'Editar proyecto':(par?'Nuevo subproyecto':'Nuevo proyecto')}</h2><button class="icon-btn" data-m="cancel" aria-label="Cerrar">✕</button></header>
+  <div class="body"><input class="title-input" id="pName" placeholder="${par?'Nombre del subproyecto':'Nombre del proyecto'}" value="${esc(draft.name)}">
+    <div class="field"><label for="pParent">Dentro de</label><select id="pParent">${projOpts(draft.parentId, excl).replace('>Sin proyecto<','>Ninguno (proyecto principal)<')}</select></div>
+    ${nKids?`<div class="note">Tiene ${nKids} ${nKids===1?'subproyecto':'subproyectos'}. Al seleccionar este proyecto verás también sus tareas y citas.</div>`:''}
     <div class="field"><div class="lab">Color</div><div class="swatches">${COLORS.map(c=>`<button type="button" data-m="color" data-c="${c}" style="background:${c}" aria-pressed="${draft.color===c}" aria-label="Color ${c}"></button>`).join('')}</div></div>
     <div class="field"><label for="pDesc">Descripción</label><textarea id="pDesc">${esc(draft.desc)}</textarea></div></div>
-  <footer>${orig?'<button class="btn danger left" data-m="delete">Eliminar</button>':''}<button class="btn" data-m="cancel">Cancelar</button><button class="btn primary" data-m="save">${orig?'Guardar cambios':'Crear proyecto'}</button></footer>`);
+  <footer>${orig?'<button class="btn danger left" data-m="delete">Eliminar</button><button class="btn" data-m="sub">+ Subproyecto</button>':''}<button class="btn" data-m="cancel">Cancelar</button><button class="btn primary" data-m="save">${orig?'Guardar cambios':(par?'Crear subproyecto':'Crear proyecto')}</button></footer>`);
   m.addEventListener('click', e=>{ const el = e.target.closest('[data-m]'); if(!el) return; const a = el.dataset.m;
     if(a==='color'){ draft.color = el.dataset.c; m.querySelectorAll('[data-m=color]').forEach(b=>b.setAttribute('aria-pressed', b.dataset.c===draft.color)); }
     if(a==='cancel') closeModal();
-    if(a==='save'){ draft.name = m.querySelector('#pName').value.trim(); draft.desc = m.querySelector('#pDesc').value; if(!draft.name){ toast('Escribe un nombre para el proyecto.'); return; }
-      if(orig) Object.assign(orig,draft); else S.projects.push(draft); save(); closeModal(); render(); toast(orig?'Cambios guardados':'Proyecto creado'); }
-    if(a==='delete'){ if(!confirm('¿Eliminar el proyecto? Sus tareas y citas quedarán sin proyecto.')) return;
-      S.projects = S.projects.filter(p=>p.id!==draft.id); [...S.tasks,...S.events].forEach(x=>{ if(x.projectId===draft.id) x.projectId=''; }); if(S.ui.project===draft.id) S.ui.project='';
+    if(a==='sub'){ closeModal(); projectModal(null, orig.id); }
+    if(a==='save'){ draft.name = m.querySelector('#pName').value.trim(); draft.desc = m.querySelector('#pDesc').value; draft.parentId = m.querySelector('#pParent').value;
+      if(!draft.name){ toast('Escribe un nombre.'); return; }
+      if(excl.has(draft.parentId)){ toast('Un proyecto no puede estar dentro de sí mismo.'); return; }
+      if(orig) Object.assign(orig,draft); else { S.projects.push(draft); if(draft.parentId && S.ui.collapsed) delete S.ui.collapsed[draft.parentId]; }
+      save(); closeModal(); render(); toast(orig?'Cambios guardados':(draft.parentId?'Subproyecto creado':'Proyecto creado')); }
+    if(a==='delete'){ const k = kids(draft.id);
+      if(!confirm(`¿Eliminar "${draft.name}"? Sus tareas y citas pasarán a ${draft.parentId?`"${projPath(draft.parentId)}"`:'quedar sin proyecto'}${k.length?` y sus ${k.length} subproyectos subirán un nivel`:''}.`)) return;
+      k.forEach(c=>c.parentId = draft.parentId||'');
+      S.projects = S.projects.filter(p=>p.id!==draft.id); [...S.tasks,...S.events].forEach(x=>{ if(x.projectId===draft.id) x.projectId = draft.parentId||''; });
+      if(S.ui.project===draft.id) S.ui.project = draft.parentId||'';
       save(); closeModal(); render(); toast('Proyecto eliminado'); }
   });
 }
@@ -983,19 +1123,25 @@ async function aiJSON(system, user){
 function context(){
   const t = today();
   return `Hoy es ${fmtLong(t)} (${t}).
-Proyectos: ${S.projects.map(p=>p.name).join(', ')||'ninguno'}.
+Proyectos (con subproyectos, separados por ›): ${projTree().map(o=>projPath(o.p.id)).join('; ')||'ninguno'}.
 Colaboradores: ${S.people.map(p=>`${p.name} (${PTYPE_SHORT[p.type]||'otro'}${p.zone?', '+p.zone:''}${p.role?', '+p.role:''})`).join('; ')||'ninguno'}.
 Cartera disponible o reservada de los colaboradores: ${allItems().filter(i=>i.status!=='cerrado').slice(0,120).map(i=>`[${i.title} | ${itemMeta(i)} | ${i.zone||'-'} | ${i.price!==''?i.price+' €':'-'} | ${i.status} | de ${i.owner.name} | act. ${i.updated||'-'}]`).join(' ')||'vacía'}.
-Tareas abiertas: ${S.tasks.filter(x=>x.status!=='done').map(x=>`[${x.title} | ${proj(x.projectId)?.name||'-'} | vence ${x.due||'-'} | ${label(STATUS,x.status)} | ${label(PRIOS,x.priority)}]`).join(' ')||'ninguna'}.
-Citas próximas: ${S.events.filter(e=>e.date>=t).sort(byTime).slice(0,40).map(e=>`[${e.date} ${e.start} ${e.title} | ${proj(e.projectId)?.name||'-'}]`).join(' ')||'ninguna'}.`;
+Tareas abiertas: ${S.tasks.filter(x=>x.status!=='done').map(x=>`[${x.title} | ${projPath(x.projectId)||'-'} | vence ${x.due||'-'} | ${label(STATUS,x.status)} | ${label(PRIOS,x.priority)}]`).join(' ')||'ninguna'}.
+Citas próximas (30 días, recurrentes ya desplegadas): ${eventsBetween(t, addDays(t,30), S.events).slice(0,60).map(e=>`[${e.date} ${e.start} ${e.title} | ${projPath(e.projectId)||'-'}${isRec(e)?' | recurrente: '+repeatText(e):''}]`).join(' ')||'ninguna'}.`;
 }
 const AI_SYS = `Eres el asistente de GOE Calendar, un organizador de tareas, reuniones y proyectos. Responde SIEMPRE en español y SOLO con un objeto JSON válido, sin texto fuera del JSON, con esta forma:
 {"reply":"respuesta breve para el usuario",
- "tasks":[{"title":"","due":"YYYY-MM-DD o vacío","project":"nombre exacto de proyecto existente o vacío","assignees":["nombres de colaboradores existentes"],"priority":"baja|media|alta|urgente","checklist":["pasos"]}],
- "events":[{"title":"","kind":"reunion|cita|llamada|evento","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","project":"","attendees":["nombres"],"location":""}],
+ "tasks":[{"title":"","due":"YYYY-MM-DD o vacío","project":"ruta exacta de proyecto existente (p.ej. Padre › Subproyecto) o vacío","assignees":["nombres de colaboradores existentes"],"priority":"baja|media|alta|urgente","checklist":["pasos"]}],
+ "events":[{"title":"","kind":"reunion|cita|llamada|evento","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","project":"","attendees":["nombres"],"location":"","repeat":{"freq":"none|daily|weekdays|weekly|monthly|yearly","interval":1,"days":["lun","mar","mie","jue","vie","sab","dom"],"until":"YYYY-MM-DD o vacío","count":0}}],
  "reschedule":[{"task":"título exacto de una tarea existente","due":"YYYY-MM-DD"}]}
-Usa listas vacías cuando no proceda. Interpreta fechas relativas a partir de hoy. Si solo te piden un resumen o consejo, deja las listas vacías y responde en "reply". Si preguntan qué hay en cartera (por zona, precio, tipo, etc.), busca en la cartera de los colaboradores y responde en "reply" indicando cada coincidencia y de qué colaborador es.`;
+Usa listas vacías cuando no proceda. Interpreta fechas relativas a partir de hoy. Para citas que se repiten ("todos los lunes", "cada 15 días", "el primer día de cada mes", "cada martes y jueves hasta diciembre") crea UNA sola cita con "repeat" rellenado y "date" = primera ocurrencia; "days" solo para weekly; si no se repite usa freq "none". "cada 15 días" = weekly con interval 2. Si solo te piden un resumen o consejo, deja las listas vacías y responde en "reply". Si preguntan qué hay en cartera (por zona, precio, tipo, etc.), busca en la cartera de los colaboradores y responde en "reply" indicando cada coincidencia y de qué colaborador es.`;
 let proposal = null;
+function aiRepeat(r, date){
+  if(!r || !r.freq || r.freq==='none' || !FREQS.some(f=>f[0]===r.freq)) return null;
+  const map = {lun:0,lunes:0,mar:1,martes:1,mie:2,'mié':2,miercoles:2,'miércoles':2,jue:3,jueves:3,vie:4,viernes:4,sab:5,'sáb':5,sabado:5,'sábado':5,dom:6,domingo:6};
+  const days = r.freq==='weekly' ? [...new Set((r.days||[]).map(d=>typeof d==='number'?d:map[String(d).toLowerCase()]).filter(d=>d>=0&&d<=6))] : [];
+  return {freq:r.freq, interval:Math.max(1,+r.interval||1), days: r.freq==='weekly' && !days.length && date ? [dowOf(date)] : days, until:r.until||'', count:+r.count>0?+r.count:''};
+}
 function aiLog(html, cls){ const d = document.createElement('div'); d.className = 'msg '+cls; d.innerHTML = html; $('#aiLog').appendChild(d); $('#aiLog').scrollTop = 1e9; return d; }
 const findBy = (list, name) => { const n = (name||'').toLowerCase().trim(); return n ? list.find(x=>x.name.toLowerCase()===n) || list.find(x=>x.name.toLowerCase().includes(n) || n.includes(x.name.toLowerCase())) : null; };
 async function aiSend(text){
@@ -1007,7 +1153,7 @@ async function aiSend(text){
     wait.remove(); proposal = {tasks:r.tasks||[], events:r.events||[], reschedule:r.reschedule||[]};
     aiLog(esc(r.reply||'Hecho.'),'ai');
     const items = [
-      ...proposal.events.map((e,i)=>`<label class="prop"><input type="checkbox" class="check" data-prop="events:${i}" checked><div><b>${esc(e.title)}</b><div class="ps">${label(KINDS,e.kind||'reunion')} · ${e.date?fmtDay(e.date):''} ${esc(e.start||'')}${e.project?' · '+esc(e.project):''}</div></div></label>`),
+      ...proposal.events.map((e,i)=>`<label class="prop"><input type="checkbox" class="check" data-prop="events:${i}" checked><div><b>${esc(e.title)}</b><div class="ps">${label(KINDS,e.kind||'reunion')} · ${e.date?fmtDay(e.date):''} ${esc(e.start||'')}${e.project?' · '+esc(e.project):''}${aiRepeat(e.repeat, e.date)?' · ↻ '+esc(repeatText({date:e.date||today(), repeat:aiRepeat(e.repeat, e.date)})):''}</div></div></label>`),
       ...proposal.tasks.map((t,i)=>`<label class="prop"><input type="checkbox" class="check" data-prop="tasks:${i}" checked><div><b>${esc(t.title)}</b><div class="ps">Tarea${t.due?' · '+fmtDay(t.due):''}${t.project?' · '+esc(t.project):''}${t.checklist?.length?' · '+t.checklist.length+' pasos':''}</div></div></label>`),
       ...proposal.reschedule.map((x,i)=>`<label class="prop"><input type="checkbox" class="check" data-prop="reschedule:${i}" checked><div><b>${esc(x.task)}</b><div class="ps">Nueva fecha: ${x.due?fmtDay(x.due):'—'}</div></div></label>`)
     ];
@@ -1017,8 +1163,8 @@ async function aiSend(text){
 function aiApply(btn){
   if(!proposal) return; let n = 0;
   btn.parentElement.querySelectorAll('[data-prop]').forEach(cb=>{ if(!cb.checked) return; const [k,i] = cb.dataset.prop.split(':'); const x = proposal[k][+i]; n++;
-    if(k==='tasks') S.tasks.push({id:uid(), title:x.title, desc:'', projectId:findBy(S.projects,x.project)?.id||S.ui.project||'', status:'todo', priority:PRIOS.some(p=>p[0]===x.priority)?x.priority:'media', due:x.due||'', assignees:(x.assignees||[]).map(a=>findBy(S.people,a)?.id).filter(Boolean), checklist:(x.checklist||[]).map(c=>({id:uid(),text:String(c),done:false})), createdAt:Date.now()});
-    if(k==='events') S.events.push({id:uid(), title:x.title, kind:KINDS.some(p=>p[0]===x.kind)?x.kind:'reunion', date:x.date||today(), start:x.start||'10:00', end:x.end||'', projectId:findBy(S.projects,x.project)?.id||S.ui.project||'', attendees:(x.attendees||[]).map(a=>findBy(S.people,a)?.id).filter(Boolean), location:x.location||'', notes:'', checklist:[]});
+    if(k==='tasks') S.tasks.push({id:uid(), title:x.title, desc:'', projectId:findProj(x.project)?.id||S.ui.project||'', status:'todo', priority:PRIOS.some(p=>p[0]===x.priority)?x.priority:'media', due:x.due||'', assignees:(x.assignees||[]).map(a=>findBy(S.people,a)?.id).filter(Boolean), checklist:(x.checklist||[]).map(c=>({id:uid(),text:String(c),done:false})), createdAt:Date.now()});
+    if(k==='events') S.events.push({id:uid(), title:x.title, kind:KINDS.some(p=>p[0]===x.kind)?x.kind:'reunion', date:x.date||today(), start:x.start||'10:00', end:x.end||'', projectId:findProj(x.project)?.id||S.ui.project||'', attendees:(x.attendees||[]).map(a=>findBy(S.people,a)?.id).filter(Boolean), location:x.location||'', notes:'', checklist:[], repeat:aiRepeat(x.repeat, x.date)||{freq:'none',interval:1,days:[],until:'',count:''}, exdates:[]});
     if(k==='reschedule'){ const t = S.tasks.find(t=>t.title.toLowerCase()===String(x.task).toLowerCase()); if(t&&x.due) t.due = x.due; }
   });
   proposal = null; btn.parentElement.remove(); save(); render(); toast(`${n} ${n===1?'cambio aplicado':'cambios aplicados'}`);
@@ -1031,9 +1177,12 @@ const ACT = {
   newTask: el => taskModal(null, {...(el.dataset.status?{status:el.dataset.status}:{}), ...(el.dataset.person?{assignees:[el.dataset.person]}:{})}),
   newEvent: el => eventModal(null, {...(el.dataset.date?{date:el.dataset.date}:{}), ...(el.dataset.person?{attendees:[el.dataset.person]}:{})}),
   newProject: () => projectModal(),
+  newSubProject: el => projectModal(null, el.dataset.id),
+  editProject: el => projectModal(el.dataset.id),
+  toggleProj: el => { S.ui.collapsed = S.ui.collapsed||{}; S.ui.collapsed[el.dataset.id] = !S.ui.collapsed[el.dataset.id]; save(); renderNav(); },
   newPerson: () => personModal(),
   openTask: el => taskModal(el.dataset.id),
-  openEvent: el => eventModal(el.dataset.id),
+  openEvent: el => eventModal(el.dataset.id, {}, el.dataset.occ||''),
   openPerson: el => { S.ui.view = 'person'; S.ui.personId = el.dataset.id; save(); render(); $('#view').scrollTop = 0; },
   editPerson: el => personModal(el.dataset.id),
   pType: el => { S.ui.pType = el.dataset.k; save(); render(); },
