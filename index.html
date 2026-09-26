@@ -124,7 +124,7 @@ button{cursor:pointer}
 .cell.is-today .num{color:var(--brass)}
 .cell.is-today{box-shadow:inset 0 3px 0 var(--brass)}
 .chip{display:flex;align-items:center;gap:5px;font-size:12.5px;line-height:1.3;padding:2px 6px;border-radius:5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;cursor:pointer}
-.chip.ev{background:var(--c-soft);color:var(--ink);border-left:3px solid var(--c)}
+.chip.ev{background:var(--c-soft);color:var(--ink);border-left:3px solid var(--c);min-height:18px}
 .chip.tk{color:var(--muted)}
 .chip.tk::before{content:"";width:9px;height:9px;border:1.5px solid var(--c);border-radius:3px;flex:none}
 .chip.tk.is-done{text-decoration:line-through}
@@ -875,7 +875,17 @@ function eventModal(id, preset={}, occ=''){
     if(k<0) arr.push(i); else if(arr.length>1) arr.splice(k,1); daysAuto = false; b.setAttribute('aria-pressed', arr.includes(i)); syncRep(); });
   syncRep();
   const read = () => { Object.assign(draft,{title:$m('#eTitle').value.trim(), date:$m('#eDate').value, start:$m('#eStart').value, end:$m('#eEnd').value, kind:$m('#eKind').value, projectId:$m('#eProj').value, location:$m('#eLoc').value, notes:$m('#eNotes').value}); readRepeat(); };
-  const done = msg => { save(); closeModal(); render(); toast(msg); };
+  // Tras guardar: si la cita queda oculta por un filtro o fuera del mes visible, se muestra
+  const reveal = ev => { if(!ev) return ''; const notes = [];
+    if(S.ui.project && !descIds(S.ui.project).has(ev.projectId)){ S.ui.project = ''; notes.push('mostrando todos los proyectos'); }
+    if(q() && !(ev.title+' '+(ev.notes||'')).toLowerCase().includes(q())){ $('#q').value = ''; notes.push('búsqueda borrada'); }
+    const first = isRec(ev) ? (occurrences(ev, ev.date, addDays(ev.date, 400))[0] || ev.date) : ev.date;
+    if(S.ui.view==='calendar'){ const c = parseYmd(S.ui.calCursor), f = parseYmd(first);
+      const inView = S.ui.calMode==='month' ? (c.getFullYear()===f.getFullYear() && c.getMonth()===f.getMonth())
+        : (()=>{ const mon = addDays(S.ui.calCursor, -dowOf(S.ui.calCursor)); return first >= mon && first <= addDays(mon,6); })();
+      if(!inView){ S.ui.calCursor = first; notes.push('calendario movido al ' + fmtDay(first)); } }
+    return notes.length ? ' (' + notes.join(', ') + ')' : ''; };
+  const done = (msg, ev) => { const extra = reveal(ev); save(); closeModal(); render(); toast(msg + extra); };
   // Botones para elegir alcance en citas recurrentes
   const askScope = (verb, onOne, onAll) => { $m('#eFoot').innerHTML = `<span class="meta left" style="margin-right:auto">¿${verb} solo esta cita o toda la serie?</span><button class="btn" data-m="back">Volver</button><button class="btn" data-m="scopeOne">Solo esta</button><button class="btn primary" data-m="scopeAll">Toda la serie</button>`;
     m.onclick = ev => { const a = ev.target.closest('[data-m]')?.dataset.m; if(a==='scopeOne'){ m.onclick=null; onOne(); } if(a==='scopeAll'){ m.onclick=null; onAll(); } if(a==='back'){ m.onclick=null; closeModal(); eventModal(id, {}, occ); } }; };
@@ -884,14 +894,14 @@ function eventModal(id, preset={}, occ=''){
       if(draft.repeat.until && draft.repeat.until < draft.date){ toast('La fecha de fin de la repetición es anterior al inicio.'); return; }
       if(m.querySelector('input[name=rEnd]:checked')?.value==='until' && !draft.repeat.until){ toast('Elige la fecha en la que termina la repetición.'); return; }
       if(draft.repeat.freq==='weekly' && !recOrig && !draft.repeat.days.includes(dowOf(draft.date))) draft.repeat.days.push(dowOf(draft.date));
-      if(!orig){ S.events.push(draft); return done(isRec(draft)?'Cita recurrente creada':'Cita creada'); }
-      if(!recOrig){ Object.assign(orig,draft); return done('Cambios guardados'); }
+      if(!orig){ S.events.push(draft); return done(isRec(draft)?'Cita recurrente creada':'Cita creada', draft); }
+      if(!recOrig){ Object.assign(orig,draft); return done('Cambios guardados', orig); }
       askScope('Guardar cambios en',
         () => { orig.exdates = [...new Set([...(orig.exdates||[]), occ])]; S.events.push({...JSON.parse(JSON.stringify(draft)), id:uid(), repeat:{freq:'none',interval:1,days:[],until:'',count:''}, exdates:[]}); done('Cambios guardados en esta cita'); },
         () => { const shift = Math.round((parseYmd(draft.date) - parseYmd(occ))/864e5); const newStart = addDays(orig.date, shift);
           Object.assign(orig, draft, {date:newStart, id:orig.id, exdates: shift ? [] : (orig.exdates||[])});
           if(draft.repeat.freq==='weekly' && shift && draft.repeat.days.length===1 && draft.repeat.days[0]===dowOf(addDays(newStart,-shift))) orig.repeat.days=[dowOf(newStart)];
-          done('Cambios guardados en toda la serie'); }); },
+          done('Cambios guardados en toda la serie', orig); }); },
     del(){ if(!recOrig){ if(!confirm('¿Eliminar esta cita?')) return; S.events = S.events.filter(e=>e.id!==draft.id); return done('Cita eliminada'); }
       askScope('Eliminar',
         () => { orig.exdates = [...new Set([...(orig.exdates||[]), occ])]; done('Cita eliminada'); },
