@@ -821,6 +821,7 @@ function eventModal(id, preset={}, occ=''){
   const recOrig = orig && isRec(orig); if(recOrig && !occ) occ = orig.date;
   const shownDate = recOrig ? occ : draft.date;
   const endMode = draft.repeat.until ? 'until' : (+draft.repeat.count>0 ? 'count' : 'never');
+  let daysAuto = !(draft.repeat.days.length>1 || (draft.repeat.days.length===1 && draft.repeat.days[0]!==dowOf(shownDate)));
   const m = openModal(`<header><h2>${orig?'Editar cita':'Nueva cita'}</h2><button class="icon-btn" data-m="cancel" aria-label="Cerrar">✕</button></header>
   <div class="body">
     <input class="title-input" id="eTitle" placeholder="Título de la reunión o cita" value="${esc(draft.title)}">
@@ -861,9 +862,17 @@ function eventModal(id, preset={}, occ=''){
     const tmp = {...draft, date:(recOrig?orig.date:$m('#eDate').value)||today(), repeat:{...draft.repeat}}; const keep = draft.repeat.days; draft.repeat.days = keep; tmp.repeat.freq = f; tmp.repeat.interval = +$m('#eInterval').value||1;
     const mode = m.querySelector('input[name=rEnd]:checked')?.value; tmp.repeat.until = mode==='until'?$m('#eUntil').value:''; tmp.repeat.count = mode==='count'?$m('#eCount').value:'';
     $m('#repSummary').textContent = f==='none' ? '' : '↻ ' + repeatText(tmp); };
+  const syncDays = () => { if(!daysAuto) return; const ds = $m('#eDate').value; if(!ds) return; draft.repeat.days = $m('#eFreq').value==='weekly' ? [dowOf(ds)] : [];
+    m.querySelectorAll('[data-m=dow]').forEach(b=>b.setAttribute('aria-pressed', draft.repeat.days.includes(+b.dataset.i))); };
+  // 2) Escribir una fecha de fin o un número de veces marca esa opción automáticamente
+  const pickEnd = v => { const r = m.querySelector(`input[name=rEnd][value=${v}]`); if(r) r.checked = true; };
+  ['input','change','focus'].forEach(t=>{ $m('#eUntil').addEventListener(t, ()=>{ if(t!=='focus' || $m('#eUntil').value) pickEnd('until'); });
+    $m('#eCount').addEventListener(t, ()=>pickEnd('count')); });
+  $m('#eDate').addEventListener('change', ()=>{ syncDays(); syncRep(); });
+  $m('#eFreq').addEventListener('change', ()=>{ if($m('#eFreq').value==='weekly'){ daysAuto = daysAuto || !draft.repeat.days.length; syncDays(); } });
   m.addEventListener('change', syncRep); m.addEventListener('input', e=>{ if(['eInterval','eCount','eUntil'].includes(e.target.id)) syncRep(); });
   m.addEventListener('click', e=>{ const b = e.target.closest('[data-m=dow]'); if(!b) return; const i = +b.dataset.i, arr = draft.repeat.days, k = arr.indexOf(i);
-    if(k<0) arr.push(i); else if(arr.length>1) arr.splice(k,1); b.setAttribute('aria-pressed', arr.includes(i)); syncRep(); });
+    if(k<0) arr.push(i); else if(arr.length>1) arr.splice(k,1); daysAuto = false; b.setAttribute('aria-pressed', arr.includes(i)); syncRep(); });
   syncRep();
   const read = () => { Object.assign(draft,{title:$m('#eTitle').value.trim(), date:$m('#eDate').value, start:$m('#eStart').value, end:$m('#eEnd').value, kind:$m('#eKind').value, projectId:$m('#eProj').value, location:$m('#eLoc').value, notes:$m('#eNotes').value}); readRepeat(); };
   const done = msg => { save(); closeModal(); render(); toast(msg); };
@@ -873,6 +882,8 @@ function eventModal(id, preset={}, occ=''){
   wireModal(m, draft, {peopleKey:'attendees',
     save(){ read(); if(!draft.title||!draft.date){ toast('Añade un título y una fecha.'); return; }
       if(draft.repeat.until && draft.repeat.until < draft.date){ toast('La fecha de fin de la repetición es anterior al inicio.'); return; }
+      if(m.querySelector('input[name=rEnd]:checked')?.value==='until' && !draft.repeat.until){ toast('Elige la fecha en la que termina la repetición.'); return; }
+      if(draft.repeat.freq==='weekly' && !recOrig && !draft.repeat.days.includes(dowOf(draft.date))) draft.repeat.days.push(dowOf(draft.date));
       if(!orig){ S.events.push(draft); return done(isRec(draft)?'Cita recurrente creada':'Cita creada'); }
       if(!recOrig){ Object.assign(orig,draft); return done('Cambios guardados'); }
       askScope('Guardar cambios en',
